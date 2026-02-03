@@ -1,28 +1,31 @@
-from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel, Field
+import logging
+from contextlib import asynccontextmanager
 
-app = FastAPI()
+from fastapi import FastAPI
 
+from model import get_model
+from routes.predict import router as predict_router
 
-class PredictRequest(BaseModel):
-    seller_id: int = Field(..., gt=0)
-    is_verified_seller: bool
-    item_id: int = Field(..., gt=0)
-    name: str = Field(..., min_length=1)
-    description: str = Field(..., min_length=1)
-    category: int = Field(..., gt=0)
-    images_qty: int = Field(..., ge=0)
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 
-def predict_decision(payload: PredictRequest) -> bool:
-    if payload.is_verified_seller:
-        return True
-    return payload.images_qty > 0
-
-
-@app.post("/predict", response_model=bool)
-def predict(payload: PredictRequest) -> bool:
+@asynccontextmanager
+async def lifespan(app: FastAPI):
     try:
-        return predict_decision(payload)
-    except Exception as exc: 
-        raise HTTPException(status_code=500, detail="Prediction failed") from exc
+        app.state.model = get_model()
+        logger.info("Model loaded successfully")
+    except Exception as exc:
+        logger.error("Failed to load model: %s", exc)
+        app.state.model = None
+    yield
+    app.state.model = None
+
+
+app = FastAPI(lifespan=lifespan)
+app.include_router(predict_router)
+
+
+@app.get("/")
+def root():
+    return {"status": "ok", "docs": "/docs"}

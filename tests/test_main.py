@@ -1,16 +1,14 @@
 from pathlib import Path
 import sys
 
+import pytest
 from fastapi.testclient import TestClient
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
-    sys.path.append(str(ROOT_DIR))
+    sys.path.insert(0, str(ROOT_DIR))
 
 import main
-
-
-client = TestClient(main.app)
 
 
 def build_payload(**overrides):
@@ -27,28 +25,37 @@ def build_payload(**overrides):
     return payload
 
 
-def test_predict_positive_verified_seller():
-    payload = build_payload(is_verified_seller=True, images_qty=0)
+@pytest.fixture
+def client():
+    with TestClient(main.app) as c:
+        yield c
+
+
+def test_predict_violation_true(client):
+    payload = build_payload(is_verified_seller=False, images_qty=0, description="x" * 10)
     response = client.post("/predict", json=payload)
     assert response.status_code == 200
-    assert response.json() is True
+    data = response.json()
+    assert "is_violation" in data
+    assert "probability" in data
+    assert data["is_violation"] is True
+    assert 0 <= data["probability"] <= 1
 
 
-def test_predict_positive_unverified_with_images():
-    payload = build_payload(is_verified_seller=False, images_qty=2)
+def test_predict_violation_false(client):
+    payload = build_payload(
+        is_verified_seller=True, images_qty=5, description="x" * 100, category=50
+    )
     response = client.post("/predict", json=payload)
     assert response.status_code == 200
-    assert response.json() is True
+    data = response.json()
+    assert "is_violation" in data
+    assert "probability" in data
+    assert data["is_violation"] is False
+    assert 0 <= data["probability"] <= 1
 
 
-def test_predict_negative_unverified_without_images():
-    payload = build_payload(is_verified_seller=False, images_qty=0)
-    response = client.post("/predict", json=payload)
-    assert response.status_code == 200
-    assert response.json() is False
-
-
-def test_predict_validation_errors():
+def test_predict_validation_errors(client):
     payload = build_payload()
     payload.pop("seller_id")
     response = client.post("/predict", json=payload)
@@ -57,12 +64,16 @@ def test_predict_validation_errors():
     response = client.post("/predict", json=build_payload(images_qty="many"))
     assert response.status_code == 422
 
+    response = client.post("/predict", json=build_payload(seller_id=-1))
+    assert response.status_code == 422
 
-def test_predict_business_error(monkeypatch):
-    def _boom(_payload):
-        raise RuntimeError("boom")
 
-    monkeypatch.setattr(main, "predict_decision", _boom)
-    response = client.post("/predict", json=build_payload())
-    assert response.status_code == 500
-    assert response.json()["detail"] == "Prediction failed"
+def test_predict_model_unavailable(client):
+    original_model = getattr(main.app.state, "model", None)
+    main.app.state.model = None
+    try:
+        response = client.post("/predict", json=build_payload())
+        assert response.status_code == 503
+        assert response.json()["detail"] == "Model not loaded"
+    finally:
+        main.app.state.model = original_model

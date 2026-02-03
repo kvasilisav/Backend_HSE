@@ -1,3 +1,6 @@
 fastapi
 pytest
 httpx
+scikit-learn
+numpy
+mlflow
