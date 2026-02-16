@@ -1,6 +1,6 @@
 fastapi
 pytest
-pytest-asyncio
+pytest-asyncio>=0.21.0
 httpx
 scikit-learn
 numpy
@@ -8,3 +8,4 @@ mlflow
 asyncpg
 psycopg2-binary
 yandex-pgmigrate
+aiokafka

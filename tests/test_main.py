@@ -1,11 +1,7 @@
-import asyncio
-import sys
-from pathlib import Path
-
 import pytest
 from fastapi.testclient import TestClient
+from unittest.mock import MagicMock
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import main
 from repositories.ads import AdsRepository
 from repositories.users import UsersRepository
@@ -31,28 +27,58 @@ def client():
         yield c
 
 
-def test_predict_violation_true(client):
-    payload = build_payload(is_verified_seller=False, images_qty=0, description="x" * 10)
-    response = client.post("/predict", json=payload)
+@pytest.fixture
+def mock_model():
+    model = MagicMock()
+    model.predict.return_value = [1]
+    model.predict_proba.return_value = [[0.2, 0.8]]
+    return model
+
+
+@pytest.fixture
+def mock_model_false():
+    model = MagicMock()
+    model.predict.return_value = [0]
+    model.predict_proba.return_value = [[0.9, 0.1]]
+    return model
+
+
+@pytest.fixture
+def client_with_mock_model(client, mock_model):
+    original_model = getattr(main.app.state, "model", None)
+    main.app.state.model = mock_model
+    yield client
+    main.app.state.model = original_model
+
+
+@pytest.fixture
+def client_with_mock_model_false(client, mock_model_false):
+    original_model = getattr(main.app.state, "model", None)
+    main.app.state.model = mock_model_false
+    yield client
+    main.app.state.model = original_model
+
+
+def test_predict_violation_true(client_with_mock_model):
+    payload = build_payload()
+    response = client_with_mock_model.post("/predict", json=payload)
     assert response.status_code == 200
     data = response.json()
     assert "is_violation" in data
     assert "probability" in data
     assert data["is_violation"] is True
-    assert 0 <= data["probability"] <= 1
+    assert data["probability"] == 0.8
 
 
-def test_predict_violation_false(client):
-    payload = build_payload(
-        is_verified_seller=True, images_qty=5, description="x" * 100, category=50
-    )
-    response = client.post("/predict", json=payload)
+def test_predict_violation_false(client_with_mock_model_false):
+    payload = build_payload()
+    response = client_with_mock_model_false.post("/predict", json=payload)
     assert response.status_code == 200
     data = response.json()
     assert "is_violation" in data
     assert "probability" in data
     assert data["is_violation"] is False
-    assert 0 <= data["probability"] <= 1
+    assert data["probability"] == 0.1
 
 
 def test_predict_validation_errors(client):
@@ -68,15 +94,18 @@ def test_predict_validation_errors(client):
     assert response.status_code == 422
 
 
-def test_predict_model_unavailable(client):
+@pytest.fixture
+def client_without_model(client):
     original_model = getattr(main.app.state, "model", None)
     main.app.state.model = None
-    try:
-        response = client.post("/predict", json=build_payload())
-        assert response.status_code == 503
-        assert response.json()["detail"] == "Model not loaded"
-    finally:
-        main.app.state.model = original_model
+    yield client
+    main.app.state.model = original_model
+
+
+def test_predict_model_unavailable(client_without_model):
+    response = client_without_model.post("/predict", json=build_payload())
+    assert response.status_code == 503
+    assert response.json()["detail"] == "Model not loaded"
 
 
 @pytest.fixture
@@ -85,6 +114,24 @@ def db_client(client):
     if pool is None:
         pytest.skip("Database not available")
     return client, pool
+
+
+@pytest.fixture
+def db_client_with_mock_model(db_client, mock_model):
+    client, pool = db_client
+    original_model = getattr(main.app.state, "model", None)
+    main.app.state.model = mock_model
+    yield client, pool
+    main.app.state.model = original_model
+
+
+@pytest.fixture
+def db_client_with_mock_model_false(db_client, mock_model_false):
+    client, pool = db_client
+    original_model = getattr(main.app.state, "model", None)
+    main.app.state.model = mock_model_false
+    yield client, pool
+    main.app.state.model = original_model
 
 
 async def _create_ad(pool, is_verified: bool, desc_len: int, category: int, images: int):
@@ -100,28 +147,31 @@ async def _create_ad(pool, is_verified: bool, desc_len: int, category: int, imag
     )
 
 
-def test_simple_predict_violation_true(db_client):
-    client, pool = db_client
-    item_id = asyncio.run(_create_ad(pool, False, 10, 7, 0))
+@pytest.mark.asyncio
+async def test_simple_predict_violation_true(db_client_with_mock_model):
+    client, pool = db_client_with_mock_model
+    item_id = await _create_ad(pool, False, 10, 7, 0)
     response = client.post("/simple_predict", json={"item_id": item_id})
     assert response.status_code == 200
     data = response.json()
     assert data["is_violation"] is True
-    assert 0 <= data["probability"] <= 1
+    assert data["probability"] == 0.8
 
 
-def test_simple_predict_violation_false(db_client):
-    client, pool = db_client
-    item_id = asyncio.run(_create_ad(pool, True, 100, 50, 5))
+@pytest.mark.asyncio
+async def test_simple_predict_violation_false(db_client_with_mock_model_false):
+    client, pool = db_client_with_mock_model_false
+    item_id = await _create_ad(pool, True, 100, 50, 5)
     response = client.post("/simple_predict", json={"item_id": item_id})
     assert response.status_code == 200
     data = response.json()
     assert data["is_violation"] is False
-    assert 0 <= data["probability"] <= 1
+    assert data["probability"] == 0.1
 
 
-def test_simple_predict_ad_not_found(db_client):
-    client, _ = db_client
+@pytest.mark.asyncio
+async def test_simple_predict_ad_not_found(db_client_with_mock_model):
+    client, _ = db_client_with_mock_model
     response = client.post("/simple_predict", json={"item_id": 999999})
     assert response.status_code == 404
 
@@ -152,27 +202,32 @@ def test_simple_predict_ad_not_found_mock(client, monkeypatch):
     assert response.json()["detail"] == "Ad not found"
 
 
-def test_repositories_create_user_and_ad(db_client):
+@pytest.mark.asyncio
+async def test_repositories_create_user(db_client):
     _, pool = db_client
+    users = UsersRepository(pool)
+    user_id = await users.create(is_verified_seller=True)
+    user = await users.get_by_id(user_id)
+    assert user is not None
+    assert user["is_verified_seller"] is True
 
-    async def run():
-        users = UsersRepository(pool)
-        ads = AdsRepository(pool)
-        user_id = await users.create(is_verified_seller=True)
-        user = await users.get_by_id(user_id)
-        assert user["is_verified_seller"] is True
-        item_id = await ads.create(
-            seller_id=user_id,
-            name="Item",
-            description="Desc",
-            category=1,
-            images_qty=3,
-        )
-        ad = await ads.get_by_id(item_id)
-        assert ad["name"] == "Item"
-        assert ad["description"] == "Desc"
-        assert ad["category"] == 1
-        assert ad["images_qty"] == 3
-        assert ad["is_verified_seller"] is True
 
-    asyncio.run(run())
+@pytest.mark.asyncio
+async def test_repositories_create_ad(db_client):
+    _, pool = db_client
+    users = UsersRepository(pool)
+    ads = AdsRepository(pool)
+    user_id = await users.create(is_verified_seller=True)
+    item_id = await ads.create(
+        seller_id=user_id,
+        name="Item",
+        description="Desc",
+        category=1,
+        images_qty=3,
+    )
+    ad = await ads.get_by_id(item_id)
+    assert ad["name"] == "Item"
+    assert ad["description"] == "Desc"
+    assert ad["category"] == 1
+    assert ad["images_qty"] == 3
+    assert ad["is_verified_seller"] is True
