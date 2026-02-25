@@ -22,12 +22,6 @@ def build_payload(**overrides):
 
 
 @pytest.fixture
-def client():
-    with TestClient(main.app) as c:
-        yield c
-
-
-@pytest.fixture
 def mock_model():
     model = MagicMock()
     model.predict.return_value = [1]
@@ -109,14 +103,6 @@ def test_predict_model_unavailable(client_without_model):
 
 
 @pytest.fixture
-def db_client(client):
-    pool = getattr(main.app.state, "db_pool", None)
-    if pool is None:
-        pytest.skip("Database not available")
-    return client, pool
-
-
-@pytest.fixture
 def db_client_with_mock_model(db_client, mock_model):
     client, pool = db_client
     original_model = getattr(main.app.state, "model", None)
@@ -147,6 +133,7 @@ async def _create_ad(pool, is_verified: bool, desc_len: int, category: int, imag
     )
 
 
+@pytest.mark.integration
 @pytest.mark.asyncio
 async def test_simple_predict_violation_true(db_client_with_mock_model):
     client, pool = db_client_with_mock_model
@@ -158,6 +145,7 @@ async def test_simple_predict_violation_true(db_client_with_mock_model):
     assert data["probability"] == 0.8
 
 
+@pytest.mark.integration
 @pytest.mark.asyncio
 async def test_simple_predict_violation_false(db_client_with_mock_model_false):
     client, pool = db_client_with_mock_model_false
@@ -169,6 +157,7 @@ async def test_simple_predict_violation_false(db_client_with_mock_model_false):
     assert data["probability"] == 0.1
 
 
+@pytest.mark.integration
 @pytest.mark.asyncio
 async def test_simple_predict_ad_not_found(db_client_with_mock_model):
     client, _ = db_client_with_mock_model
@@ -202,6 +191,7 @@ def test_simple_predict_ad_not_found_mock(client, monkeypatch):
     assert response.json()["detail"] == "Ad not found"
 
 
+@pytest.mark.integration
 @pytest.mark.asyncio
 async def test_repositories_create_user(db_client):
     _, pool = db_client
@@ -212,6 +202,7 @@ async def test_repositories_create_user(db_client):
     assert user["is_verified_seller"] is True
 
 
+@pytest.mark.integration
 @pytest.mark.asyncio
 async def test_repositories_create_ad(db_client):
     _, pool = db_client

@@ -12,10 +12,17 @@ class AdsRepository:
                    u.is_verified_seller
             FROM ads a
             INNER JOIN users u ON a.seller_id = u.id
-            WHERE a.id = $1
+            WHERE a.id = $1 AND a.is_closed = FALSE
             """,
             item_id,
         )
+
+    async def close(self, item_id: int) -> bool:
+        row = await self.pool.fetchrow(
+            "UPDATE ads SET is_closed = TRUE WHERE id = $1 AND is_closed = FALSE RETURNING id",
+            item_id,
+        )
+        return row is not None
 
     async def create(
         self,

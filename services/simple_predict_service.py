@@ -1,14 +1,26 @@
 import logging
+from typing import TYPE_CHECKING
 
 from fastapi import HTTPException
 
 from repositories.ads import AdsRepository
 from services.predict_service import run_prediction
+from storages.cache import cache_key_simple_predict
+
+if TYPE_CHECKING:
+    from storages.cache import PredictionCache
 
 logger = logging.getLogger(__name__)
 
 
-async def simple_predict(item_id: int, model, pool):
+async def simple_predict(item_id: int, model, pool, cache: "PredictionCache | None" = None):
+    if cache:
+        try:
+            cached = await cache.get(cache_key_simple_predict(item_id))
+            if cached is not None:
+                return cached
+        except Exception:
+            pass
     ads_repo = AdsRepository(pool)
     row = await ads_repo.get_by_id(item_id)
     if row is None:
@@ -23,7 +35,13 @@ async def simple_predict(item_id: int, model, pool):
             category=row["category"],
             images_qty=row["images_qty"],
         )
-        return {"is_violation": is_violation, "probability": probability}
+        result = {"is_violation": is_violation, "probability": probability}
+        if cache:
+            try:
+                await cache.set(cache_key_simple_predict(item_id), result)
+            except Exception:
+                pass
+        return result
     except HTTPException:
         raise
     except Exception as exc:

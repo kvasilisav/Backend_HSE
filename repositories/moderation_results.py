@@ -57,3 +57,16 @@ class ModerationResultsRepository:
             error_message,
             task_id,
         )
+
+    async def get_task_ids_by_item_id(self, item_id: int) -> list[int]:
+        rows = await self.pool.fetch(
+            "SELECT id FROM moderation_results WHERE item_id = $1",
+            item_id,
+        )
+        return [r["id"] for r in rows]
+
+    async def delete_by_item_id(self, item_id: int):
+        await self.pool.execute(
+            "DELETE FROM moderation_results WHERE item_id = $1",
+            item_id,
+        )

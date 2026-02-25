@@ -39,17 +39,10 @@ async def process_message(
         ads_repo = AdsRepository(pool)
         results_repo = ModerationResultsRepository(pool)
 
-        result = await pool.fetchrow(
-            """
-            SELECT id FROM moderation_results
-            WHERE item_id = $1 AND status = 'pending'
-            ORDER BY created_at ASC LIMIT 1
-            """
-        )
-        if not result:
-            logger.warning("No pending task found for item_id=%s", item_id)
+        task_id = message_data.get("task_id")
+        if not task_id:
+            logger.warning("Message missing task_id: %s", message_data)
             return
-        task_id = result["id"]
 
         ad = await ads_repo.get_by_id(item_id)
         if ad is None:
@@ -118,7 +111,7 @@ async def main():
         bootstrap_servers=KAFKA_BOOTSTRAP_SERVERS,
         group_id="moderation_workers",
         value_deserializer=lambda m: json.loads(m.decode("utf-8")),
-        enable_auto_commit=True,
+        enable_auto_commit=False,
     )
 
     try:
@@ -130,6 +123,7 @@ async def main():
                 message_data = message.value
                 logger.info("Received message: %s", message_data)
                 await process_message(message_data, model, pool, kafka_producer)
+                await consumer.commit()
             except Exception as exc:
                 logger.exception("Error handling message: %s", exc)
 

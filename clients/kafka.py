@@ -32,14 +32,15 @@ class KafkaProducer:
             self._producer = None
             logger.info("Kafka producer stopped")
 
-    async def send_moderation_request(self, item_id: int):
+    async def send_moderation_request(self, item_id: int, task_id: int):
         await self.start()
         message = {
             "item_id": item_id,
+            "task_id": task_id,
             "timestamp": datetime.utcnow().isoformat() + "Z",
         }
         await self._producer.send_and_wait(MODERATION_TOPIC, message)
-        logger.info("Sent moderation request for item_id=%s", item_id)
+        logger.info("Sent moderation request for item_id=%s task_id=%s", item_id, task_id)
 
     async def send_to_dlq(
         self, original_message: dict, error: str, retry_count: int = 0

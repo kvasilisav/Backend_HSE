@@ -17,5 +17,5 @@ async def create_moderation_task(item_id: int, pool, kafka_producer: KafkaProduc
 
     results_repo = ModerationResultsRepository(pool)
     task_id = await results_repo.create(item_id)
-    await kafka_producer.send_moderation_request(item_id)
+    await kafka_producer.send_moderation_request(item_id, task_id)
     return task_id

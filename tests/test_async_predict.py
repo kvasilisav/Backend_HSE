@@ -8,12 +8,6 @@ from repositories.moderation_results import ModerationResultsRepository
 
 
 @pytest.fixture
-def client():
-    with TestClient(main.app) as c:
-        yield c
-
-
-@pytest.fixture
 def mock_model():
     model = MagicMock()
     model.predict.return_value = [1]
@@ -30,14 +24,6 @@ def client_with_mock_model(client, mock_model):
 
 
 @pytest.fixture
-def db_client(client):
-    pool = getattr(main.app.state, "db_pool", None)
-    if pool is None:
-        pytest.skip("Database not available")
-    return client, pool
-
-
-@pytest.fixture
 def db_client_with_mock_model(db_client, mock_model):
     client, pool = db_client
     original_model = getattr(main.app.state, "model", None)
@@ -46,6 +32,7 @@ def db_client_with_mock_model(db_client, mock_model):
     main.app.state.model = original_model
 
 
+@pytest.mark.integration
 @pytest.mark.asyncio
 async def test_async_predict_create_task(db_client_with_mock_model):
     client, pool = db_client_with_mock_model
@@ -75,9 +62,10 @@ async def test_async_predict_create_task(db_client_with_mock_model):
         assert "task_id" in data
         assert data["status"] == "pending"
         assert data["message"] == "Moderation request accepted"
-        mock_producer.send_moderation_request.assert_called_once_with(item_id)
+        assert mock_producer.send_moderation_request.call_args[0] == (item_id, data["task_id"])
 
 
+@pytest.mark.integration
 def test_async_predict_ad_not_found(db_client_with_mock_model):
     client, _ = db_client_with_mock_model
     with patch("routes.async_predict.KafkaProducer"):
@@ -102,6 +90,7 @@ def test_async_predict_validation(client, monkeypatch):
     assert response.status_code == 422
 
 
+@pytest.mark.integration
 @pytest.mark.asyncio
 async def test_get_moderation_result_pending(db_client_with_mock_model):
     client, pool = db_client_with_mock_model
@@ -131,6 +120,7 @@ async def test_get_moderation_result_pending(db_client_with_mock_model):
     assert data["probability"] is None
 
 
+@pytest.mark.integration
 @pytest.mark.asyncio
 async def test_get_moderation_result_completed(db_client_with_mock_model):
     client, pool = db_client_with_mock_model
