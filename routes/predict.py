@@ -3,6 +3,8 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
+from exceptions import AdNotFoundError, PredictionError
+from metrics import PREDICTION_ERRORS_TOTAL
 from services.close_ad_service import close_ad
 from services.predict_service import run_prediction
 from services.simple_predict_service import simple_predict
@@ -29,6 +31,7 @@ class PredictRequest(BaseModel):
 def get_model(request: Request):
     model = getattr(request.app.state, "model", None)
     if model is None:
+        PREDICTION_ERRORS_TOTAL.labels(error_type="model_unavailable").inc()
         raise HTTPException(status_code=503, detail="Model not loaded")
     return model
 
@@ -84,7 +87,12 @@ async def predict(
         return result
     except HTTPException:
         raise
+    except PredictionError as exc:
+        PREDICTION_ERRORS_TOTAL.labels(error_type="prediction_error").inc()
+        logger.exception("Prediction failed")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
     except Exception as exc:
+        PREDICTION_ERRORS_TOTAL.labels(error_type="prediction_error").inc()
         logger.exception("Prediction failed")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
@@ -96,7 +104,13 @@ async def simple_predict_handler(
     pool=Depends(get_pool),
     cache=Depends(get_cache),
 ):
-    return await simple_predict(payload.item_id, model, pool, cache)
+    try:
+        return await simple_predict(payload.item_id, model, pool, cache)
+    except AdNotFoundError:
+        raise HTTPException(status_code=404, detail="Ad not found")
+    except PredictionError as exc:
+        PREDICTION_ERRORS_TOTAL.labels(error_type="prediction_error").inc()
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
 class CloseAdRequest(BaseModel):
@@ -109,5 +123,8 @@ async def close_ad_handler(
     pool=Depends(get_pool),
     cache=Depends(get_cache),
 ):
-    await close_ad(payload.item_id, pool, cache)
+    try:
+        await close_ad(payload.item_id, pool, cache)
+    except AdNotFoundError:
+        raise HTTPException(status_code=404, detail="Ad not found or already closed")
     return {"message": "Ad closed"}

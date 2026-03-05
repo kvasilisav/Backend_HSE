@@ -1,5 +1,13 @@
 import logging
+import time
+
 import numpy as np
+
+from metrics import (
+    MODEL_PREDICTION_PROBABILITY,
+    PREDICTION_DURATION_SECONDS,
+    PREDICTIONS_TOTAL,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -48,7 +56,12 @@ def run_prediction(
         item_id,
         features.tolist(),
     )
+    start = time.perf_counter()
     is_violation, probability = predict(model, features)
+    PREDICTION_DURATION_SECONDS.observe(time.perf_counter() - start)
+    result_label = "violation" if is_violation else "no_violation"
+    PREDICTIONS_TOTAL.labels(result=result_label).inc()
+    MODEL_PREDICTION_PROBABILITY.observe(probability)
     logger.info(
         "Prediction: is_violation=%s, probability=%s",
         is_violation,

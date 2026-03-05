@@ -1,8 +1,7 @@
 import logging
 from typing import TYPE_CHECKING
 
-from fastapi import HTTPException
-
+from exceptions import AdNotFoundError, PredictionError
 from repositories.ads import AdsRepository
 from services.predict_service import run_prediction
 from storages.cache import cache_key_simple_predict
@@ -24,7 +23,7 @@ async def simple_predict(item_id: int, model, pool, cache: "PredictionCache | No
     ads_repo = AdsRepository(pool)
     row = await ads_repo.get_by_id(item_id)
     if row is None:
-        raise HTTPException(status_code=404, detail="Ad not found")
+        raise AdNotFoundError("Ad not found")
     try:
         is_violation, probability = run_prediction(
             model=model,
@@ -42,8 +41,8 @@ async def simple_predict(item_id: int, model, pool, cache: "PredictionCache | No
             except Exception:
                 pass
         return result
-    except HTTPException:
+    except (AdNotFoundError, PredictionError):
         raise
     except Exception as exc:
         logger.exception("Simple predict failed")
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        raise PredictionError(str(exc)) from exc

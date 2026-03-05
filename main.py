@@ -3,9 +3,12 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from redis.asyncio import Redis
+from starlette.responses import Response
 
 from db.connection import create_pool
 from model import get_model
+from metrics import get_metrics_content, get_metrics_content_type
+from middleware.prometheus_middleware import PrometheusMiddleware
 from routes.async_predict import router as async_predict_router
 from routes.predict import router as predict_router
 from storages.cache import REDIS_URL, PredictionCache
@@ -65,6 +68,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(lifespan=lifespan)
+app.add_middleware(PrometheusMiddleware)
 app.include_router(predict_router)
 app.include_router(async_predict_router)
 
@@ -72,3 +76,11 @@ app.include_router(async_predict_router)
 @app.get("/")
 def root():
     return {"status": "ok", "docs": "/docs"}
+
+
+@app.get("/metrics")
+async def metrics():
+    return Response(
+        content=get_metrics_content(),
+        media_type=get_metrics_content_type(),
+    )

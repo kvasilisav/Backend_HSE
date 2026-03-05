@@ -1,15 +1,29 @@
 import pytest
 from unittest.mock import AsyncMock, MagicMock
 
-from fastapi import HTTPException
-
+from exceptions import AdNotFoundError
 import main
 from services.close_ad_service import close_ad
 
 
+class _AsyncCtx:
+    def __init__(self, value):
+        self.value = value
+
+    async def __aenter__(self):
+        return self.value
+
+    async def __aexit__(self, *args):
+        return None
+
+
 @pytest.fixture
 def mock_pool():
-    return MagicMock()
+    pool = MagicMock()
+    mock_conn = MagicMock()
+    mock_conn.transaction = MagicMock(return_value=_AsyncCtx(None))
+    pool.acquire = MagicMock(return_value=_AsyncCtx(mock_conn))
+    return pool
 
 
 @pytest.fixture
@@ -27,9 +41,8 @@ async def test_close_ad_not_found(mock_pool, mock_cache):
     with patch.object(close_svc.ModerationResultsRepository, "get_task_ids_by_item_id", new_callable=AsyncMock, return_value=[]):
         with patch.object(close_svc.ModerationResultsRepository, "delete_by_item_id", new_callable=AsyncMock):
             with patch.object(close_svc.AdsRepository, "close", new_callable=AsyncMock, return_value=False):
-                with pytest.raises(HTTPException) as exc_info:
+                with pytest.raises(AdNotFoundError):
                     await close_ad(999, mock_pool, mock_cache)
-                assert exc_info.value.status_code == 404
 
 
 def test_close_validation(client, monkeypatch):

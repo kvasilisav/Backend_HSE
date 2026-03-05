@@ -1,8 +1,7 @@
 import logging
 
-from fastapi import HTTPException
-
 from clients.kafka import KafkaProducer
+from exceptions import AdNotFoundError
 from repositories.ads import AdsRepository
 from repositories.moderation_results import ModerationResultsRepository
 
@@ -13,7 +12,7 @@ async def create_moderation_task(item_id: int, pool, kafka_producer: KafkaProduc
     ads_repo = AdsRepository(pool)
     ad = await ads_repo.get_by_id(item_id)
     if ad is None:
-        raise HTTPException(status_code=404, detail="Ad not found")
+        raise AdNotFoundError("Ad not found")
 
     results_repo = ModerationResultsRepository(pool)
     task_id = await results_repo.create(item_id)

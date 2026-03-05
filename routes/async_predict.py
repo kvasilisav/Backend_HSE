@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from clients.kafka import KafkaProducer, KAFKA_BOOTSTRAP_SERVERS
+from exceptions import AdNotFoundError
 from repositories.moderation_results import ModerationResultsRepository
 from services.async_predict_service import create_moderation_task
 from storages.cache import PredictionCache, cache_key_moderation_result
@@ -48,8 +49,8 @@ async def async_predict(
             "status": "pending",
             "message": "Moderation request accepted",
         }
-    except HTTPException:
-        raise
+    except AdNotFoundError:
+        raise HTTPException(status_code=404, detail="Ad not found")
     except Exception as exc:
         logger.exception("Failed to create moderation task")
         raise HTTPException(status_code=500, detail=str(exc)) from exc

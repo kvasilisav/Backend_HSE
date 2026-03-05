@@ -2,42 +2,35 @@
 
 ## Setup
 
-1. Создать БД: `sudo -u postgres psql -f scripts/create_db.sql`
-2. Миграции: `pgmigrate -c "postgresql://moderation:moderation@localhost:5432/moderation" -d migrations -t latest migrate`
-3. Запустить Kafka (Redpanda): `docker-compose up -d`
-4. Запуск API: `uvicorn main:app --reload`
-5. Запуск воркера: `python -m workers.moderation_worker`
+1. БД и миграции: `pgmigrate -c "postgresql://moderation:moderation@localhost:5433/moderation" -d migrations -t latest migrate`
+2. Сервисы: `docker compose up -d`
+3. API: `uvicorn main:app --host 0.0.0.0 --port 8000`
+4. Воркер: `python -m workers.moderation_worker`
 
 ## API
 
 - `GET /` — проверка
 - `POST /predict` — предсказание по полным данным
-- `POST /simple_predict` — предсказание по item_id (данные из БД)
-- `POST /async_predict` — асинхронная модерация (отправка в Kafka)
-- `GET /moderation_result/{task_id}` — получение статуса модерации
+- `POST /simple_predict` — предсказание по item_id
+- `POST /async_predict` — асинхронная модерация
+- `GET /moderation_result/{task_id}` — статус модерации
+- `POST /close` — закрытие объявления
+- `GET /metrics` — метрики Prometheus
+
+## Мониторинг
+
+- Prometheus: http://localhost:9090
+- Grafana: http://localhost:3000 (admin / admin)
+- Дашборд: Import → `grafana/dashboard.json`
 
 ## Kafka
 
-- Брокер: `localhost:9092`
-- Топики: `moderation`, `moderation_dlq`
+- Брокер: localhost:9092
 - Консоль: http://localhost:8080
 
 ## Тесты
 
 ```bash
-# Без БД (6 тестов)
-pytest tests/ -v
-
-# С PostgreSQL (все тесты)
-pgmigrate -c "postgresql://moderation_test:moderation_test@localhost:5432/moderation_test" -d migrations -t latest migrate
-pytest tests/ -v
+pytest tests/ -v -m "not integration"
+pytest tests/ -v -m integration
 ```
-
-## Makefile команды
-
-- `make up` — запустить Kafka
-- `make down` — остановить Kafka
-- `make migrate` — применить миграции
-- `make migrate-test` — применить миграции для тестовой БД
-- `make worker` — запустить воркер
-- `make test` — запустить тесты
